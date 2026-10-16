@@ -7,6 +7,8 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body class="bubbly">
+  <button type="button" class="bubble-toggle" id="toggle-login" aria-pressed="false">Hide login &amp; play</button>
+
   <div class="center">
     <form class="card" id="login-form" novalidate>
       <h1>Welcome back</h1>
@@ -44,6 +46,16 @@
 
     document.getElementById("show-password").addEventListener("change", (e) => {
       passwordEl.type = e.target.checked ? "text" : "password";
+    });
+
+    // Hide the login card so the user can play with the bubbles, and bring it back.
+    const toggleBtn = document.getElementById("toggle-login");
+    const loginWrap = document.querySelector(".center");
+    toggleBtn.addEventListener("click", () => {
+      const hiding = !loginWrap.hidden;
+      loginWrap.hidden = hiding;
+      toggleBtn.textContent = hiding ? "Show login" : "Hide login & play";
+      toggleBtn.setAttribute("aria-pressed", String(hiding));
     });
 
     form.addEventListener("submit", async (e) => {

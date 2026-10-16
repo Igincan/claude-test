@@ -279,9 +279,9 @@
     mouse.x = mouse.y = -9999;
   });
 
-  // click a bubble to split it, or empty space for a burst (ignore clicks on the login card)
+  // click a bubble to split it, or empty space for a burst (ignore clicks on the login card and its toggle)
   window.addEventListener("pointerdown", (e) => {
-    if (e.target.closest(".card")) return;
+    if (e.target.closest(".card, .bubble-toggle")) return;
     for (let i = ambient.length - 1; i >= 0; i--) {
       const b = ambient[i];
       if (Math.hypot(b.x - e.clientX, b.y - e.clientY) <= b.r) {
