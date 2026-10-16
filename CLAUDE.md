@@ -13,5 +13,6 @@ Static site (no build step): `index.html` (login), `home.html`, `auth.js`, `bubb
    `https://igincan.github.io/claude-test/preview/<branch>/` (slashes in the branch
    name become `-`). Wait for the workflow to finish and give the user the preview link.
 4. **Do not merge until the user has tested the preview and says to merge.**
-   Merging to `main` deploys to `https://igincan.github.io/claude-test/`; deleting the
-   branch afterwards removes its preview.
+   Merging to `main` deploys to `https://igincan.github.io/claude-test/`.
+5. **Always delete the branch after merging** (remote and local). Deleting it also
+   removes its preview.
