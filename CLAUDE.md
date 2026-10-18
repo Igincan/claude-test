@@ -1,6 +1,6 @@
 # Working in this repo
 
-Static site (no build step): `index.html` (login), `home.html`, `auth.js`, `bubbles.js`, `style.css`.
+Static site (no build step): `index.html`, `bubbles.js` (touch-friendly bubble playground), `style.css`.
 
 ## Change workflow
 
