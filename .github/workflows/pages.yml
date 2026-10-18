@@ -1,25 +1,26 @@
 # Publishes the site to GitHub Pages (gh-pages branch):
 #   main          -> https://igincan.github.io/claude-test/
 #   other branch  -> https://igincan.github.io/claude-test/preview/<branch>/
-# Deleting a branch removes its preview.
+# Merging a PR deletes its branch; deleting a branch (merged or by hand) removes its preview.
 name: GitHub Pages
 
 on:
   push:
     branches-ignore: [gh-pages]
+  pull_request:
+    types: [closed]
   delete:
 
 permissions:
   contents: write
 
-concurrency:
-  group: gh-pages
-  cancel-in-progress: false
-
 jobs:
   deploy:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    concurrency:
+      group: gh-pages
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 
@@ -45,22 +46,44 @@ jobs:
           keep_files: true
           commit_message: "Deploy ${{ github.ref_name }}"
 
-  remove-preview:
-    if: github.event_name == 'delete' && github.event.ref_type == 'branch'
+  cleanup:
+    # Runs when a PR from this repo is merged, or when a branch is deleted by hand.
+    # Branch deletes made with GITHUB_TOKEN don't trigger the delete event, so the
+    # merged-PR path removes the preview itself.
+    if: >-
+      (github.event_name == 'delete' && github.event.ref_type == 'branch') ||
+      (github.event_name == 'pull_request' && github.event.pull_request.merged &&
+       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
+    env:
+      BRANCH: ${{ github.event.pull_request.head.ref || github.event.ref }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: gh-pages
+          fetch-depth: 0
 
       - name: Delete preview folder
-        env:
-          BRANCH: ${{ github.event.ref }}
         run: |
           dir="preview/${BRANCH//\//-}"
-          [ -d "$dir" ] || exit 0
+          [ -d "$dir" ] || { echo "No preview for $BRANCH"; exit 0; }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm -rq "$dir"
           git commit -m "Remove preview for $BRANCH"
-          git push
+          # Another deploy may push to gh-pages at the same time; rebase and retry.
+          for i in 1 2 3 4 5; do
+            git push origin HEAD:gh-pages && exit 0
+            sleep $((i * 3))
+            git pull --rebase origin gh-pages
+          done
+          exit 1
+
+      - name: Delete merged branch
+        if: github.event_name == 'pull_request' && env.BRANCH != 'main' && env.BRANCH != 'gh-pages'
+        run: |
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+            git push origin --delete "$BRANCH"
+          else
+            echo "$BRANCH already deleted"
+          fi

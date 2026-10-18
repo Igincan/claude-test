@@ -14,5 +14,6 @@ Static site (no build step): `index.html` (login), `home.html`, `auth.js`, `bubb
    name become `-`). Wait for the workflow to finish and give the user the preview link.
 4. **Do not merge until the user has tested the preview and says to merge.**
    Merging to `main` deploys to `https://igincan.github.io/claude-test/`.
-5. **Always delete the branch after merging** (remote and local). Deleting it also
-   removes its preview.
+5. **Branches are deleted after merging.** Merging a PR (on GitHub or via Claude)
+   makes `pages.yml` delete the branch and its preview automatically. Delete the local
+   copy too.
