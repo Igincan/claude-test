@@ -8,15 +8,18 @@
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const COLORS = ["#ff8fc7", "#ff5fa2", "#ffb3d9", "#f472b6", "#fbcfe8", "#ec4899"];
   const MAX_TRAIL = 120;
-  const MAX_BUBBLES = 150;
+  const MAX_BUBBLES = 120; // reaching this many hearts means the screen is too crowded: start over
   const MIN_R = 4; // smallest bubble a split can produce
-  const REPEL = 140; // strength of bubble-to-bubble antigravity
+  const REPEL = 50; // strength of bubble-to-bubble antigravity
+  const SPAWN_EVERY = 60; // frames between new little hearts
+  const CROWDED = 0.45; // share of the screen covered by hearts that triggers a restart
   const MERGE_COOLDOWN = 90; // frames a fresh split piece can't merge
 
   let width, height, dpr;
   let ambient = []; // floating bubbles: repel each other, dodge the cursor, merge and split
   const trail = []; // short-lived bubbles spawned by the cursor
   const mouse = { x: -9999, y: -9999, lastX: null, lastY: null };
+  let frame = 0;
 
   function resize() {
     dpr = window.devicePixelRatio || 1;
@@ -172,7 +175,18 @@
   function tick() {
     ctx.clearRect(0, 0, width, height);
 
-    const maxR = Math.min(width, height) * 0.2;
+    // a new little heart pops in every so often, to be gathered into a bigger one
+    frame++;
+    if (frame % SPAWN_EVERY === 0) {
+      const b = makeAmbient({ r: rand(5, 10) });
+      if (!isPushed(b)) {
+        ambient.push(b);
+        spawnTrail(b.x, b.y, 3, 1);
+      }
+    }
+    if (isCrowded()) reset();
+
+    const maxR = Math.min(width, height) * 0.35;
     const merged = new Set();
 
     // antigravity between every pair, merging when the cursor squeezes them together
@@ -321,9 +335,24 @@
     spawnTrail(e.clientX, e.clientY, 18, 4);
   });
 
+  // Too many hearts to move around: no room left to play.
+  function isCrowded() {
+    if (ambient.length >= MAX_BUBBLES) return true;
+    const area = ambient.reduce((sum, b) => sum + 3 * b.r * b.r, 0); // roughly a heart's area
+    return area > width * height * CROWDED;
+  }
+
+  // Back to a fresh screen of hearts.
+  function reset() {
+    ambient = [];
+    trail.length = 0;
+    frame = 0;
+    const count = Math.round((width * height) / 15000);
+    for (let i = 0; i < count; i++) ambient.push(makeAmbient());
+  }
+
   resize();
-  const count = Math.round((width * height) / 30000);
-  for (let i = 0; i < count; i++) ambient.push(makeAmbient());
+  reset();
 
   if (reduceMotion) {
     // static bubbles only, no animation
