@@ -8,7 +8,7 @@
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const COLORS = ["#ff8fc7", "#ff5fa2", "#ffb3d9", "#f472b6", "#fbcfe8", "#ec4899"];
   const MAX_TRAIL = 120;
-  const MAX_BUBBLES = 120; // reaching this many hearts means the screen is too crowded: start over
+  const MAX_BUBBLES = 250; // no new hearts past this many, to keep things smooth
   const MIN_R = 4; // smallest bubble a split can produce
   const REPEL = 50; // strength of bubble-to-bubble antigravity
   const SPAWN_EVERY = 60; // frames between new little hearts
@@ -177,7 +177,7 @@
 
     // a new little heart pops in every so often, to be gathered into a bigger one
     frame++;
-    if (frame % SPAWN_EVERY === 0) {
+    if (frame % SPAWN_EVERY === 0 && ambient.length < MAX_BUBBLES) {
       const b = makeAmbient({ r: rand(5, 10) });
       if (!isPushed(b)) {
         ambient.push(b);
@@ -335,9 +335,8 @@
     spawnTrail(e.clientX, e.clientY, 18, 4);
   });
 
-  // Too many hearts to move around: no room left to play.
+  // Hearts cover so much of the screen there's no room left to move them.
   function isCrowded() {
-    if (ambient.length >= MAX_BUBBLES) return true;
     const area = ambient.reduce((sum, b) => sum + 3 * b.r * b.r, 0); // roughly a heart's area
     return area > width * height * CROWDED;
   }
