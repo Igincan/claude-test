@@ -1,4 +1,4 @@
-// Bubbly pink cursor background for the login page.
+// Bubbly pink playground: works with a mouse or a finger.
 (function () {
   const canvas = document.createElement("canvas");
   canvas.id = "bubbles";
@@ -275,13 +275,30 @@
     }
   });
 
-  window.addEventListener("pointerleave", () => {
+  function releasePointer() {
     mouse.x = mouse.y = -9999;
+    mouse.lastX = mouse.lastY = null;
+  }
+
+  document.addEventListener("pointerleave", releasePointer);
+  window.addEventListener("pointercancel", releasePointer);
+  // a lifted finger shouldn't keep pushing bubbles from where it was
+  window.addEventListener("pointerup", (e) => {
+    if (e.pointerType !== "mouse") releasePointer();
   });
 
-  // click a bubble to split it, or empty space for a burst (ignore clicks on the login card and its toggle)
+  // stop the browser from scrolling, zooming or refreshing while a finger drags
+  const blockGesture = (e) => e.preventDefault();
+  for (const type of ["touchstart", "touchmove", "gesturestart", "dblclick", "contextmenu"]) {
+    document.addEventListener(type, blockGesture, { passive: false });
+  }
+
+  // tap/click a bubble to split it, or empty space for a burst
   window.addEventListener("pointerdown", (e) => {
-    if (e.target.closest(".card, .bubble-toggle")) return;
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+    mouse.lastX = e.clientX;
+    mouse.lastY = e.clientY;
     for (let i = ambient.length - 1; i >= 0; i--) {
       const b = ambient[i];
       if (Math.hypot(b.x - e.clientX, b.y - e.clientY) <= b.r) {
