@@ -1,0 +1,51 @@
+# Run by hand (Actions tab, or GitHub mobile app -> Actions -> Run workflow) to delete
+# leftover branches whose changes are all already on main, together with their Pages
+# previews.
+name: Delete merged branches
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Delete branches fully merged into main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          deleted=()
+          for ref in $(git for-each-ref --format='%(refname:strip=3)' refs/remotes/origin); do
+            case "$ref" in main|gh-pages|HEAD) continue ;; esac
+            # git cherry prints "+" for commits whose changes are not on main yet
+            # (cherry-picked or squash-merged commits count as merged).
+            if git cherry origin/main "origin/$ref" | grep -q '^+'; then
+              echo "Keeping $ref (has unmerged changes)"
+            else
+              echo "Deleting $ref"
+              git push origin --delete "$ref"
+              deleted+=("$ref")
+            fi
+          done
+
+          # Deletes made with GITHUB_TOKEN don't trigger pages.yml, so remove previews here.
+          git checkout -q -B gh-pages origin/gh-pages
+          for ref in "${deleted[@]}"; do
+            dir="preview/${ref//\//-}"
+            if [ -d "$dir" ]; then git rm -rq "$dir"; fi
+          done
+          git diff --cached --quiet && exit 0
+          git commit -m "Remove previews of deleted branches"
+          for i in 1 2 3 4 5; do
+            git push origin HEAD:gh-pages && exit 0
+            sleep $((i * 3))
+            git pull --rebase origin gh-pages
+          done
+          exit 1
