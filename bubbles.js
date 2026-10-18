@@ -1,4 +1,4 @@
-// Bubbly pink playground: works with a mouse or a finger.
+// Pink hearts playground: works with a mouse or a finger.
 (function () {
   const canvas = document.createElement("canvas");
   canvas.id = "bubbles";
@@ -139,21 +139,33 @@
     }
   }
 
+  // Heart outline that fits inside a circle of radius r around (x, y).
+  function heartPath(x, y, r) {
+    const px = (u) => x + u * r;
+    const py = (v) => y + v * r;
+    ctx.beginPath();
+    ctx.moveTo(px(0), py(-0.45));
+    ctx.bezierCurveTo(px(-0.15), py(-0.9), px(-1), py(-0.95), px(-1), py(-0.3));
+    ctx.bezierCurveTo(px(-1), py(0.2), px(-0.45), py(0.5), px(0), py(0.95));
+    ctx.bezierCurveTo(px(0.45), py(0.5), px(1), py(0.2), px(1), py(-0.3));
+    ctx.bezierCurveTo(px(1), py(-0.95), px(0.15), py(-0.9), px(0), py(-0.45));
+    ctx.closePath();
+  }
+
   function drawBubble(x, y, r, color, alpha) {
     ctx.globalAlpha = alpha;
-    const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.35, r * 0.1, x, y, r);
+    const g = ctx.createRadialGradient(x - r * 0.45, y - r * 0.45, r * 0.1, x, y, r * 1.1);
     g.addColorStop(0, "rgba(255,255,255,0.9)");
     g.addColorStop(0.35, color);
     g.addColorStop(1, color + "33");
     ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
+    heartPath(x, y, r);
     ctx.fill();
 
-    // little shine
+    // little shine on the left lobe
     ctx.fillStyle = "rgba(255,255,255,0.7)";
     ctx.beginPath();
-    ctx.arc(x - r * 0.4, y - r * 0.4, r * 0.18, 0, Math.PI * 2);
+    ctx.ellipse(x - r * 0.5, y - r * 0.4, r * 0.18, r * 0.12, -Math.PI / 4, 0, Math.PI * 2);
     ctx.fill();
   }
 
