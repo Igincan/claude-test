@@ -2,88 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Login</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#ffc2e2" />
+  <title>Bubbles</title>
   <link rel="stylesheet" href="style.css" />
 </head>
-<body class="bubbly">
-  <button type="button" class="bubble-toggle" id="toggle-login" aria-pressed="false">Hide login &amp; play</button>
-
-  <div class="center">
-    <form class="card" id="login-form" novalidate>
-      <h1>Welcome back</h1>
-      <p class="muted">Sign in to your account</p>
-
-      <div class="error" id="error" hidden></div>
-
-      <label for="email">Email</label>
-      <input type="email" id="email" placeholder="you@example.com" autocomplete="username" required />
-
-      <label for="password">Password</label>
-      <input type="password" id="password" placeholder="••••••••" autocomplete="current-password" required />
-
-      <div class="row">
-        <input type="checkbox" id="show-password" />
-        <label for="show-password" style="margin:0;font-weight:400">Show password</label>
-      </div>
-
-      <button type="submit" id="submit">Sign in</button>
-
-      <p class="hint">Demo: admin@example.com / password123</p>
-    </form>
-  </div>
-
-  <script src="auth.js"></script>
+<body>
   <script src="bubbles.js"></script>
-  <script>
-    // Already logged in? Go straight to home.
-    if (getSession()) location.replace("home.html");
-
-    const form = document.getElementById("login-form");
-    const errorEl = document.getElementById("error");
-    const submitBtn = document.getElementById("submit");
-    const passwordEl = document.getElementById("password");
-
-    document.getElementById("show-password").addEventListener("change", (e) => {
-      passwordEl.type = e.target.checked ? "text" : "password";
-    });
-
-    // Hide the login card so the user can play with the bubbles, and bring it back.
-    const toggleBtn = document.getElementById("toggle-login");
-    const loginWrap = document.querySelector(".center");
-    toggleBtn.addEventListener("click", () => {
-      const hiding = !loginWrap.hidden;
-      loginWrap.hidden = hiding;
-      toggleBtn.textContent = hiding ? "Show login" : "Hide login & play";
-      toggleBtn.setAttribute("aria-pressed", String(hiding));
-    });
-
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      errorEl.hidden = true;
-
-      const email = document.getElementById("email").value;
-      const password = passwordEl.value;
-
-      if (!email || !password) {
-        errorEl.textContent = "Please enter both email and password.";
-        errorEl.hidden = false;
-        return;
-      }
-
-      submitBtn.disabled = true;
-      submitBtn.textContent = "Signing in…";
-
-      try {
-        await login(email, password);
-        location.href = "home.html";
-      } catch (err) {
-        errorEl.textContent = err.message;
-        errorEl.hidden = false;
-        submitBtn.disabled = false;
-        submitBtn.textContent = "Sign in";
-      }
-    });
-  </script>
 </body>
 </html>
