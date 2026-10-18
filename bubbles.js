@@ -1,4 +1,4 @@
-// Bubbly pink playground: works with a mouse or a finger.
+// Pink hearts playground: works with a mouse or a finger.
 (function () {
   const canvas = document.createElement("canvas");
   canvas.id = "bubbles";
@@ -8,15 +8,18 @@
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const COLORS = ["#ff8fc7", "#ff5fa2", "#ffb3d9", "#f472b6", "#fbcfe8", "#ec4899"];
   const MAX_TRAIL = 120;
-  const MAX_BUBBLES = 150;
+  const MAX_BUBBLES = 250; // no new hearts past this many, to keep things smooth
   const MIN_R = 4; // smallest bubble a split can produce
-  const REPEL = 140; // strength of bubble-to-bubble antigravity
+  const REPEL = 50; // strength of bubble-to-bubble antigravity
+  const SPAWN_EVERY = 60; // frames between new little hearts
+  const CROWDED = 0.45; // share of the screen covered by hearts that triggers a restart
   const MERGE_COOLDOWN = 90; // frames a fresh split piece can't merge
 
   let width, height, dpr;
   let ambient = []; // floating bubbles: repel each other, dodge the cursor, merge and split
   const trail = []; // short-lived bubbles spawned by the cursor
   const mouse = { x: -9999, y: -9999, lastX: null, lastY: null };
+  let frame = 0;
 
   function resize() {
     dpr = window.devicePixelRatio || 1;
@@ -139,28 +142,51 @@
     }
   }
 
+  // Heart outline that fits inside a circle of radius r around (x, y).
+  function heartPath(x, y, r) {
+    const px = (u) => x + u * r;
+    const py = (v) => y + v * r;
+    ctx.beginPath();
+    ctx.moveTo(px(0), py(-0.45));
+    ctx.bezierCurveTo(px(-0.15), py(-0.9), px(-1), py(-0.95), px(-1), py(-0.3));
+    ctx.bezierCurveTo(px(-1), py(0.2), px(-0.45), py(0.5), px(0), py(0.95));
+    ctx.bezierCurveTo(px(0.45), py(0.5), px(1), py(0.2), px(1), py(-0.3));
+    ctx.bezierCurveTo(px(1), py(-0.95), px(0.15), py(-0.9), px(0), py(-0.45));
+    ctx.closePath();
+  }
+
   function drawBubble(x, y, r, color, alpha) {
     ctx.globalAlpha = alpha;
-    const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.35, r * 0.1, x, y, r);
+    const g = ctx.createRadialGradient(x - r * 0.45, y - r * 0.45, r * 0.1, x, y, r * 1.1);
     g.addColorStop(0, "rgba(255,255,255,0.9)");
     g.addColorStop(0.35, color);
     g.addColorStop(1, color + "33");
     ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
+    heartPath(x, y, r);
     ctx.fill();
 
-    // little shine
+    // little shine on the left lobe
     ctx.fillStyle = "rgba(255,255,255,0.7)";
     ctx.beginPath();
-    ctx.arc(x - r * 0.4, y - r * 0.4, r * 0.18, 0, Math.PI * 2);
+    ctx.ellipse(x - r * 0.5, y - r * 0.4, r * 0.18, r * 0.12, -Math.PI / 4, 0, Math.PI * 2);
     ctx.fill();
   }
 
   function tick() {
     ctx.clearRect(0, 0, width, height);
 
-    const maxR = Math.min(width, height) * 0.2;
+    // a new little heart pops in every so often, to be gathered into a bigger one
+    frame++;
+    if (frame % SPAWN_EVERY === 0 && ambient.length < MAX_BUBBLES) {
+      const b = makeAmbient({ r: rand(5, 10) });
+      if (!isPushed(b)) {
+        ambient.push(b);
+        spawnTrail(b.x, b.y, 3, 1);
+      }
+    }
+    if (isCrowded()) reset();
+
+    const maxR = Math.min(width, height) * 0.35;
     const merged = new Set();
 
     // antigravity between every pair, merging when the cursor squeezes them together
@@ -309,9 +335,23 @@
     spawnTrail(e.clientX, e.clientY, 18, 4);
   });
 
+  // Hearts cover so much of the screen there's no room left to move them.
+  function isCrowded() {
+    const area = ambient.reduce((sum, b) => sum + 3 * b.r * b.r, 0); // roughly a heart's area
+    return area > width * height * CROWDED;
+  }
+
+  // Back to a fresh screen of hearts.
+  function reset() {
+    ambient = [];
+    trail.length = 0;
+    frame = 0;
+    const count = Math.round((width * height) / 15000);
+    for (let i = 0; i < count; i++) ambient.push(makeAmbient());
+  }
+
   resize();
-  const count = Math.round((width * height) / 30000);
-  for (let i = 0; i < count; i++) ambient.push(makeAmbient());
+  reset();
 
   if (reduceMotion) {
     // static bubbles only, no animation
