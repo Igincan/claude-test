@@ -7,6 +7,8 @@ name: GitHub Pages
 on:
   push:
     branches-ignore: [gh-pages]
+  # Run by hand to redeploy, e.g. after changing the COUNTDOWN_* repository variables.
+  workflow_dispatch:
   pull_request:
     types: [closed]
   delete:
@@ -16,7 +18,7 @@ permissions:
 
 jobs:
   deploy:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     concurrency:
       group: gh-pages
@@ -28,6 +30,17 @@ jobs:
         run: |
           mkdir _site
           rsync -a --exclude='.git*' --exclude='_site' --exclude='CLAUDE.md' ./ _site/
+
+      - name: Write countdown config from repository variables
+        env:
+          COUNTDOWN_TARGET: ${{ vars.COUNTDOWN_TARGET }}
+          COUNTDOWN_LABEL: ${{ vars.COUNTDOWN_LABEL }}
+        run: |
+          {
+            echo "window.COUNTDOWN_TARGET = $(jq -n --arg v "$COUNTDOWN_TARGET" '$v');"
+            echo "window.COUNTDOWN_LABEL = $(jq -n --arg v "$COUNTDOWN_LABEL" '$v');"
+          } > _site/config.js
+          cat _site/config.js
 
       - name: Pick target folder
         id: target
