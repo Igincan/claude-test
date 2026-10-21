@@ -6,7 +6,9 @@
   const ctx = canvas.getContext("2d");
 
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const COLORS = ["#ff8fc7", "#ff5fa2", "#ffb3d9", "#f472b6", "#fbcfe8", "#ec4899"];
+  const LIGHT_RED = [255, 196, 200]; // color of the tiniest hearts
+  const DEEP_RED = [200, 0, 24]; // color of the biggest hearts
+  const RED_AT = 140; // radius at which a heart is fully deep red
   const MAX_TRAIL = 120;
   const MAX_BUBBLES = 250; // no new hearts past this many, to keep things smooth
   const MIN_R = 4; // smallest bubble a split can produce
@@ -62,7 +64,6 @@
       vy: rand(-0.3, 0.3),
       wobble: rand(0, Math.PI * 2),
       cooldown: 0,
-      color: COLORS[Math.floor(Math.random() * COLORS.length)],
       ...props,
     };
   }
@@ -85,7 +86,6 @@
     a.y = (a.y * ma + b.y * mb) / m;
     a.vx = (a.vx * ma + b.vx * mb) / m;
     a.vy = (a.vy * ma + b.vy * mb) / m;
-    if (mb > ma) a.color = b.color;
     a.r = Math.sqrt(m);
   }
 
@@ -117,7 +117,6 @@
           vx: b.vx + Math.cos(angle) * speed,
           vy: b.vy + Math.sin(angle) * speed,
           cooldown: MERGE_COOLDOWN,
-          color: b.color,
         })
       );
     });
@@ -137,7 +136,6 @@
         vy: Math.sin(angle) * v - 0.6,
         life: 1,
         decay: rand(0.012, 0.025),
-        color: COLORS[Math.floor(Math.random() * COLORS.length)],
       });
     }
   }
@@ -155,12 +153,21 @@
     ctx.closePath();
   }
 
-  function drawBubble(x, y, r, color, alpha) {
-    ctx.globalAlpha = alpha;
+  // 0 for the tiniest hearts, 1 for the biggest; log scale so mid-size hearts get warmer too.
+  function redness(r) {
+    return Math.min(1, Math.max(0, Math.log(r / MIN_R) / Math.log(RED_AT / MIN_R)));
+  }
+
+  // The bigger the heart, the redder and more solid it is.
+  function drawBubble(x, y, r, alpha) {
+    const t = redness(r);
+    const [cr, cg, cb] = LIGHT_RED.map((c, i) => Math.round(c + (DEEP_RED[i] - c) * t));
+    const color = (a) => `rgba(${cr},${cg},${cb},${a})`;
+    ctx.globalAlpha = Math.min(1, alpha + 0.4 * t);
     const g = ctx.createRadialGradient(x - r * 0.45, y - r * 0.45, r * 0.1, x, y, r * 1.1);
-    g.addColorStop(0, "rgba(255,255,255,0.9)");
-    g.addColorStop(0.35, color);
-    g.addColorStop(1, color + "33");
+    g.addColorStop(0, `rgba(255,255,255,${0.9 - 0.5 * t})`);
+    g.addColorStop(0.35, color(1));
+    g.addColorStop(1, color(0.2 + 0.6 * t));
     ctx.fillStyle = g;
     heartPath(x, y, r);
     ctx.fill();
@@ -258,7 +265,7 @@
       b.y += b.vy;
 
       confine(b, b.r, 0.8);
-      drawBubble(b.x, b.y, b.r, b.color, 0.55);
+      drawBubble(b.x, b.y, b.r, 0.55);
     }
 
     for (let i = trail.length - 1; i >= 0; i--) {
@@ -273,7 +280,7 @@
       }
       const r = p.r * (0.6 + p.life * 0.4);
       confine(p, r, 0.7);
-      drawBubble(p.x, p.y, r, p.color, p.life);
+      drawBubble(p.x, p.y, r, p.life);
     }
 
     ctx.globalAlpha = 1;
@@ -355,7 +362,7 @@
 
   if (reduceMotion) {
     // static bubbles only, no animation
-    for (const b of ambient) drawBubble(b.x, b.y, b.r, b.color, 0.55);
+    for (const b of ambient) drawBubble(b.x, b.y, b.r, 0.55);
   } else {
     requestAnimationFrame(tick);
   }
