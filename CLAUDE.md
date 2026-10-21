@@ -1,6 +1,12 @@
 # Working in this repo
 
-Static site (no build step): `index.html`, `bubbles.js` (touch-friendly bubble playground), `style.css`.
+Static site (no build step): `index.html` loads `config.js`, `countdown.js` and
+`bubbles.js` (the hearts playground); styles in `style.css`.
+
+The background countdown's target and label come from the repository variables
+`COUNTDOWN_TARGET` (e.g. `2026-10-24T12:00`) and `COUNTDOWN_LABEL`, which `pages.yml`
+writes into `config.js` on deploy. Empty -> next Saturday noon / "until Saturday noon".
+After changing them, re-run the "GitHub Pages" workflow on `main` to redeploy.
 
 ## Change workflow
 
