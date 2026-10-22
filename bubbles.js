@@ -6,12 +6,12 @@
   const ctx = canvas.getContext("2d");
 
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  // [tiniest heart color, biggest heart color] per palette; hearts start grey and move
-  // one step towards red each time one bursts, then stay red. A newer (later) color
-  // always wins a merge.
+  // [tiniest heart color, biggest heart color] per palette; hearts start pale pink and
+  // move one step towards red each time one bursts, then stay red. A newer (later)
+  // color always wins when filling.
   const PALETTES = [
-    [[228, 224, 228], [128, 120, 128]], // grey
-    [[255, 208, 226], [226, 96, 150]], // pink
+    [[250, 200, 218], [232, 128, 168]], // pale pink
+    [[255, 160, 200], [218, 50, 128]], // pink
     [[255, 186, 190], [190, 10, 32]], // red
   ];
   const MASS_UNIT = 10; // a heart's mass is (r / MASS_UNIT)², so it grows with its area
@@ -22,13 +22,15 @@
   const MAX_BUBBLES = 250; // no new hearts past this many, to keep things smooth
   const MIN_R = 4; // smallest bubble a split can produce
   const REPEL = 50; // strength of bubble-to-bubble antigravity
-  const SPAWN_EVERY = 60; // frames between new hearts
-  const SPAWN_FAST_EVERY = 20; // ...while the screen has fewer hearts than it should
+  const SPAWN_EVERY = 90; // frames between new hearts
+  const SPAWN_FAST_EVERY = 40; // ...while the screen has fewer hearts than it should
   const AREA_PER_HEART = 6000; // screen px² per heart we aim to keep around (up to 120)
   const CROWDED = 0.45; // share of the screen covered by hearts that triggers a restart
   const MERGE_COOLDOWN = 90; // frames a fresh split piece can't merge
+  const FILL_RATE = 20; // px² of area that flows into the filling heart per frame
 
   let width, height, dpr;
+  let filling = null; // the one heart being filled right now; only it grows, until it bursts
   let ambient = []; // floating bubbles: repel each other, dodge the cursor, merge and split
   const trail = []; // short-lived bubbles spawned by the cursor
   const mouse = { x: -9999, y: -9999, lastX: null, lastY: null };
@@ -93,23 +95,23 @@
     return Math.hypot(b.x - mouse.x, b.y - mouse.y) < cursorReach(b);
   }
 
-  // Join b into a, keeping total area (mass) and momentum; the newer color wins.
-  function merge(a, b) {
-    const ma = a.r * a.r;
-    const mb = b.r * b.r;
-    const m = ma + mb;
-    a.palette = Math.max(a.palette, b.palette);
-    a.x = (a.x * ma + b.x * mb) / m;
-    a.y = (a.y * ma + b.y * mb) / m;
-    a.vx = (a.vx * ma + b.vx * mb) / m;
-    a.vy = (a.vy * ma + b.vy * mb) / m;
-    a.r = Math.sqrt(m);
+  // Let a little of b's area flow into the filling heart f; the newer color wins.
+  // Returns true once b is used up.
+  function feed(f, b) {
+    const left = b.r * b.r - FILL_RATE;
+    const done = left < (MIN_R * 0.6) ** 2;
+    const moved = done ? b.r * b.r : FILL_RATE;
+    f.r = Math.sqrt(f.r * f.r + moved);
+    f.palette = Math.max(f.palette, b.palette);
+    if (!done) b.r = Math.sqrt(left);
+    return done;
   }
 
   // Break a bubble into a random number of random-sized pieces with the same total area.
   // A burst (from reaching BURST_AT mass) makes more pieces, all in the next
   // color, that keep only BURST_KEEP of the mass.
   function split(b, burst = false) {
+    if (b === filling) filling = null;
     const palette = burst ? Math.min(b.palette + 1, PALETTES.length - 1) : b.palette;
     const room = MAX_BUBBLES - ambient.length + 1;
     const maxPieces = Math.min(burst ? 12 : 7, Math.floor((b.r / MIN_R) ** 2), room);
@@ -184,7 +186,7 @@
   }
 
   // The bigger the heart, the deeper its color and the more solid it is.
-  function drawBubble(x, y, r, alpha, palette = 0, showMass = false) {
+  function drawBubble(x, y, r, alpha, palette = 0) {
     const t = redness(r);
     const [light, deep] = PALETTES[palette];
     const [cr, cg, cb] = light.map((c, i) => Math.round(c + (deep[i] - c) * t));
@@ -203,16 +205,6 @@
     ctx.beginPath();
     ctx.ellipse(x - r * 0.5, y - r * 0.4, r * 0.18, r * 0.12, -Math.PI / 4, 0, Math.PI * 2);
     ctx.fill();
-
-    // its mass so far (bursts at BURST_AT), once that's worth showing
-    const m = Math.round((r / MASS_UNIT) ** 2);
-    if (showMass && m >= 10) {
-      ctx.fillStyle = "rgba(255,255,255,0.9)";
-      ctx.font = `700 ${Math.round(r * 0.42)}px system-ui, -apple-system, sans-serif`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(m, x, y + r * 0.05);
-    }
   }
 
   function tick() {
@@ -234,7 +226,8 @@
     const maxR = Math.min(width, height) * 0.35;
     const merged = new Set();
 
-    // antigravity between every pair, merging when the cursor squeezes them together
+    // antigravity between every pair; hearts the cursor squeezes into the filling heart
+    // slowly flow into it (the first squeezed pair picks the bigger one to fill)
     for (let i = 0; i < ambient.length; i++) {
       const a = ambient[i];
       if (merged.has(a)) continue;
@@ -246,15 +239,14 @@
         const dist = Math.hypot(dx, dy) || 0.01;
 
         const pushed = isPushed(a) || isPushed(b);
-        if (
-          dist < a.r + b.r &&
-          a.cooldown <= 0 &&
-          b.cooldown <= 0 &&
-          pushed
-        ) {
-          merge(a, b);
-          merged.add(b);
-          continue;
+        if (dist < a.r + b.r && a.cooldown <= 0 && b.cooldown <= 0 && pushed) {
+          if (!filling) filling = a.r >= b.r ? a : b;
+          if (a === filling || b === filling) {
+            const other = a === filling ? b : a;
+            if (feed(filling, other)) merged.add(other);
+            if (merged.has(a)) break;
+            continue;
+          }
         }
 
         if (dist > 250) continue;
@@ -304,7 +296,7 @@
       b.y += b.vy;
 
       confine(b, b.r, 0.8);
-      drawBubble(b.x, b.y, b.r, 0.55, b.palette, true);
+      drawBubble(b.x, b.y, b.r, 0.55, b.palette);
     }
 
     for (let i = trail.length - 1; i >= 0; i--) {
@@ -389,6 +381,7 @@
 
   // Back to a fresh screen of hearts.
   function reset() {
+    filling = null;
     ambient = [];
     trail.length = 0;
     frame = 0;
