@@ -6,18 +6,13 @@
   const ctx = canvas.getContext("2d");
 
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  // [tiniest heart color, biggest heart color] per palette; hearts start red and move
-  // to the next palette each time one bursts. `palette` keeps going up past the
-  // last one (it's used modulo the list) so a newer color always wins a merge.
+  // [tiniest heart color, biggest heart color] per palette; hearts start grey and move
+  // one step towards red each time one bursts, then stay red. A newer (later) color
+  // always wins a merge.
   const PALETTES = [
-    [[255, 196, 200], [200, 0, 24]], // red
-    [[255, 214, 170], [224, 90, 0]], // orange
-    [[255, 236, 150], [214, 160, 0]], // gold
-    [[200, 240, 190], [30, 150, 60]], // green
-    [[180, 236, 240], [0, 140, 160]], // teal
-    [[196, 214, 255], [30, 70, 210]], // blue
-    [[226, 200, 255], [120, 40, 200]], // purple
-    [[255, 200, 236], [214, 30, 140]], // pink
+    [[228, 224, 228], [128, 120, 128]], // grey
+    [[255, 208, 226], [226, 96, 150]], // pink
+    [[255, 186, 190], [190, 10, 32]], // red
   ];
   const MASS_UNIT = 10; // a heart's mass is (r / MASS_UNIT)², so it grows with its area
   const BURST_AT = 100; // mass at which a heart bursts by itself (r = 100px)
@@ -27,8 +22,8 @@
   const MAX_BUBBLES = 250; // no new hearts past this many, to keep things smooth
   const MIN_R = 4; // smallest bubble a split can produce
   const REPEL = 50; // strength of bubble-to-bubble antigravity
-  const SPAWN_EVERY = 30; // frames between new hearts
-  const SPAWN_FAST_EVERY = 3; // ...while the screen has fewer hearts than it should
+  const SPAWN_EVERY = 60; // frames between new hearts
+  const SPAWN_FAST_EVERY = 20; // ...while the screen has fewer hearts than it should
   const AREA_PER_HEART = 6000; // screen px² per heart we aim to keep around (up to 120)
   const CROWDED = 0.45; // share of the screen covered by hearts that triggers a restart
   const MERGE_COOLDOWN = 90; // frames a fresh split piece can't merge
@@ -112,10 +107,10 @@
   }
 
   // Break a bubble into a random number of random-sized pieces with the same total area.
-  // A burst (from reaching BURST_AT mass) makes more, faster pieces, all in the next
+  // A burst (from reaching BURST_AT mass) makes more pieces, all in the next
   // color, that keep only BURST_KEEP of the mass.
   function split(b, burst = false) {
-    const palette = burst ? b.palette + 1 : b.palette;
+    const palette = burst ? Math.min(b.palette + 1, PALETTES.length - 1) : b.palette;
     const room = MAX_BUBBLES - ambient.length + 1;
     const maxPieces = Math.min(burst ? 12 : 7, Math.floor((b.r / MIN_R) ** 2), room);
     if (maxPieces < 2) {
@@ -135,7 +130,7 @@
     weights.forEach((w, i) => {
       const r = Math.max(MIN_R, b.r * Math.sqrt(((burst ? BURST_KEEP : 1) * w) / total));
       const angle = startAngle + (i / n) * Math.PI * 2 + rand(-0.3, 0.3);
-      const speed = burst ? rand(3, 6) : rand(1.5, 4);
+      const speed = burst ? rand(2, 4) : rand(1.5, 4);
       ambient.push(
         makeAmbient({
           x: b.x + Math.cos(angle) * b.r * 0.5,
@@ -148,7 +143,7 @@
         })
       );
     });
-    if (burst) spawnTrail(b.x, b.y, 30, 5, palette);
+    if (burst) spawnTrail(b.x, b.y, 14, 3, palette);
     else spawnTrail(b.x, b.y, 6, 2, palette);
   }
 
@@ -191,7 +186,7 @@
   // The bigger the heart, the deeper its color and the more solid it is.
   function drawBubble(x, y, r, alpha, palette = 0, showMass = false) {
     const t = redness(r);
-    const [light, deep] = PALETTES[palette % PALETTES.length];
+    const [light, deep] = PALETTES[palette];
     const [cr, cg, cb] = light.map((c, i) => Math.round(c + (deep[i] - c) * t));
     const color = (a) => `rgba(${cr},${cg},${cb},${a})`;
     ctx.globalAlpha = Math.min(1, alpha + 0.4 * t);
