@@ -6,14 +6,30 @@
   const ctx = canvas.getContext("2d");
 
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const LIGHT_RED = [255, 196, 200]; // color of the tiniest hearts
-  const DEEP_RED = [200, 0, 24]; // color of the biggest hearts
+  // [tiniest heart color, biggest heart color] per palette; hearts start red and move
+  // to the next palette each time one bursts. `palette` keeps going up past the
+  // last one (it's used modulo the list) so a newer color always wins a merge.
+  const PALETTES = [
+    [[255, 196, 200], [200, 0, 24]], // red
+    [[255, 214, 170], [224, 90, 0]], // orange
+    [[255, 236, 150], [214, 160, 0]], // gold
+    [[200, 240, 190], [30, 150, 60]], // green
+    [[180, 236, 240], [0, 140, 160]], // teal
+    [[196, 214, 255], [30, 70, 210]], // blue
+    [[226, 200, 255], [120, 40, 200]], // purple
+    [[255, 200, 236], [214, 30, 140]], // pink
+  ];
+  const MASS_UNIT = 10; // a heart's mass is (r / MASS_UNIT)², so it grows with its area
+  const BURST_AT = 100; // mass at which a heart bursts by itself (r = 100px)
+  const BURST_KEEP = 0.6; // share of the mass the burst pieces keep; the rest sparkles away
   const RED_AT = 140; // radius at which a heart is fully deep red
   const MAX_TRAIL = 120;
   const MAX_BUBBLES = 250; // no new hearts past this many, to keep things smooth
   const MIN_R = 4; // smallest bubble a split can produce
   const REPEL = 50; // strength of bubble-to-bubble antigravity
-  const SPAWN_EVERY = 60; // frames between new little hearts
+  const SPAWN_EVERY = 30; // frames between new hearts
+  const SPAWN_FAST_EVERY = 3; // ...while the screen has fewer hearts than it should
+  const AREA_PER_HEART = 6000; // screen px² per heart we aim to keep around (up to 120)
   const CROWDED = 0.45; // share of the screen covered by hearts that triggers a restart
   const MERGE_COOLDOWN = 90; // frames a fresh split piece can't merge
 
@@ -64,8 +80,13 @@
       vy: rand(-0.3, 0.3),
       wobble: rand(0, Math.PI * 2),
       cooldown: 0,
+      palette: 0,
       ...props,
     };
+  }
+
+  function mass(b) {
+    return (b.r / MASS_UNIT) ** 2;
   }
 
   // A bubble counts as "pushed" when it's inside the cursor's reach.
@@ -77,11 +98,12 @@
     return Math.hypot(b.x - mouse.x, b.y - mouse.y) < cursorReach(b);
   }
 
-  // Join b into a, keeping total area and momentum.
+  // Join b into a, keeping total area (mass) and momentum; the newer color wins.
   function merge(a, b) {
     const ma = a.r * a.r;
     const mb = b.r * b.r;
     const m = ma + mb;
+    a.palette = Math.max(a.palette, b.palette);
     a.x = (a.x * ma + b.x * mb) / m;
     a.y = (a.y * ma + b.y * mb) / m;
     a.vx = (a.vx * ma + b.vx * mb) / m;
@@ -90,25 +112,30 @@
   }
 
   // Break a bubble into a random number of random-sized pieces with the same total area.
-  function split(b) {
-    const maxPieces = Math.min(7, Math.floor((b.r / MIN_R) ** 2), MAX_BUBBLES - ambient.length + 1);
+  // A burst (from reaching BURST_AT mass) makes more, faster pieces, all in the next
+  // color, that keep only BURST_KEEP of the mass.
+  function split(b, burst = false) {
+    const palette = burst ? b.palette + 1 : b.palette;
+    const room = MAX_BUBBLES - ambient.length + 1;
+    const maxPieces = Math.min(burst ? 12 : 7, Math.floor((b.r / MIN_R) ** 2), room);
     if (maxPieces < 2) {
       // too small to split: just pop it
       ambient.splice(ambient.indexOf(b), 1);
-      spawnTrail(b.x, b.y, 8, 3);
+      spawnTrail(b.x, b.y, 8, 3, palette);
       return;
     }
 
-    const n = 2 + Math.floor(Math.random() * (maxPieces - 1));
+    const minPieces = burst ? Math.min(8, maxPieces) : 2;
+    const n = minPieces + Math.floor(Math.random() * (maxPieces - minPieces + 1));
     const weights = Array.from({ length: n }, () => rand(0.2, 1));
     const total = weights.reduce((sum, w) => sum + w, 0);
     const startAngle = rand(0, Math.PI * 2);
 
     ambient.splice(ambient.indexOf(b), 1);
     weights.forEach((w, i) => {
-      const r = Math.max(MIN_R, b.r * Math.sqrt(w / total));
+      const r = Math.max(MIN_R, b.r * Math.sqrt(((burst ? BURST_KEEP : 1) * w) / total));
       const angle = startAngle + (i / n) * Math.PI * 2 + rand(-0.3, 0.3);
-      const speed = rand(1.5, 4);
+      const speed = burst ? rand(3, 6) : rand(1.5, 4);
       ambient.push(
         makeAmbient({
           x: b.x + Math.cos(angle) * b.r * 0.5,
@@ -117,13 +144,15 @@
           vx: b.vx + Math.cos(angle) * speed,
           vy: b.vy + Math.sin(angle) * speed,
           cooldown: MERGE_COOLDOWN,
+          palette,
         })
       );
     });
-    spawnTrail(b.x, b.y, 6, 2);
+    if (burst) spawnTrail(b.x, b.y, 30, 5, palette);
+    else spawnTrail(b.x, b.y, 6, 2, palette);
   }
 
-  function spawnTrail(x, y, count, speed) {
+  function spawnTrail(x, y, count, speed, palette = 0) {
     for (let i = 0; i < count; i++) {
       if (trail.length >= MAX_TRAIL) trail.shift();
       const angle = rand(0, Math.PI * 2);
@@ -136,6 +165,7 @@
         vy: Math.sin(angle) * v - 0.6,
         life: 1,
         decay: rand(0.012, 0.025),
+        palette,
       });
     }
   }
@@ -158,10 +188,11 @@
     return Math.min(1, Math.max(0, Math.log(r / MIN_R) / Math.log(RED_AT / MIN_R)));
   }
 
-  // The bigger the heart, the redder and more solid it is.
-  function drawBubble(x, y, r, alpha) {
+  // The bigger the heart, the deeper its color and the more solid it is.
+  function drawBubble(x, y, r, alpha, palette = 0, showMass = false) {
     const t = redness(r);
-    const [cr, cg, cb] = LIGHT_RED.map((c, i) => Math.round(c + (DEEP_RED[i] - c) * t));
+    const [light, deep] = PALETTES[palette % PALETTES.length];
+    const [cr, cg, cb] = light.map((c, i) => Math.round(c + (deep[i] - c) * t));
     const color = (a) => `rgba(${cr},${cg},${cb},${a})`;
     ctx.globalAlpha = Math.min(1, alpha + 0.4 * t);
     const g = ctx.createRadialGradient(x - r * 0.45, y - r * 0.45, r * 0.1, x, y, r * 1.1);
@@ -177,15 +208,27 @@
     ctx.beginPath();
     ctx.ellipse(x - r * 0.5, y - r * 0.4, r * 0.18, r * 0.12, -Math.PI / 4, 0, Math.PI * 2);
     ctx.fill();
+
+    // its mass so far (bursts at BURST_AT), once that's worth showing
+    const m = Math.round((r / MASS_UNIT) ** 2);
+    if (showMass && m >= 10) {
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.font = `700 ${Math.round(r * 0.42)}px system-ui, -apple-system, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(m, x, y + r * 0.05);
+    }
   }
 
   function tick() {
     ctx.clearRect(0, 0, width, height);
 
-    // a new little heart pops in every so often, to be gathered into a bigger one
+    // a new heart pops in every so often, to be gathered into a bigger one:
+    // mostly small ones, now and then a bigger one; quickly while there are few
     frame++;
-    if (frame % SPAWN_EVERY === 0 && ambient.length < MAX_BUBBLES) {
-      const b = makeAmbient({ r: rand(5, 10) });
+    const few = ambient.length < Math.min(120, (width * height) / AREA_PER_HEART);
+    if (frame % (few ? SPAWN_FAST_EVERY : SPAWN_EVERY) === 0 && ambient.length < MAX_BUBBLES) {
+      const b = makeAmbient({ r: 7 + 23 * Math.random() ** 2 });
       if (!isPushed(b)) {
         ambient.push(b);
         spawnTrail(b.x, b.y, 3, 1);
@@ -212,8 +255,7 @@
           dist < a.r + b.r &&
           a.cooldown <= 0 &&
           b.cooldown <= 0 &&
-          pushed &&
-          Math.hypot(a.r, b.r) <= maxR
+          pushed
         ) {
           merge(a, b);
           merged.add(b);
@@ -234,6 +276,8 @@
       }
     }
     if (merged.size) ambient = ambient.filter((b) => !merged.has(b));
+    // too full to keep gathering (enough hearts, or as big as a heart gets): burst into a new color
+    for (const b of ambient.filter((b) => mass(b) >= BURST_AT || b.r >= maxR)) split(b, true);
 
     for (const b of ambient) {
       if (b.cooldown > 0) b.cooldown--;
@@ -265,7 +309,7 @@
       b.y += b.vy;
 
       confine(b, b.r, 0.8);
-      drawBubble(b.x, b.y, b.r, 0.55);
+      drawBubble(b.x, b.y, b.r, 0.55, b.palette, true);
     }
 
     for (let i = trail.length - 1; i >= 0; i--) {
@@ -280,7 +324,7 @@
       }
       const r = p.r * (0.6 + p.life * 0.4);
       confine(p, r, 0.7);
-      drawBubble(p.x, p.y, r, p.life);
+      drawBubble(p.x, p.y, r, p.life, p.palette);
     }
 
     ctx.globalAlpha = 1;
@@ -353,7 +397,7 @@
     ambient = [];
     trail.length = 0;
     frame = 0;
-    const count = Math.round((width * height) / 15000);
+    const count = Math.round((width * height) / 10000);
     for (let i = 0; i < count; i++) ambient.push(makeAmbient());
   }
 
