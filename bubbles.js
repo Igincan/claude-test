@@ -6,8 +6,19 @@
   const ctx = canvas.getContext("2d");
 
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const LIGHT_RED = [255, 196, 200]; // color of the tiniest hearts
-  const DEEP_RED = [200, 0, 24]; // color of the biggest hearts
+  // [tiniest heart color, biggest heart color] per palette; hearts start red and move
+  // to the next palette each time one bursts from gathering BURST_AT hearts.
+  const PALETTES = [
+    [[255, 196, 200], [200, 0, 24]], // red
+    [[255, 214, 170], [224, 90, 0]], // orange
+    [[255, 236, 150], [214, 160, 0]], // gold
+    [[200, 240, 190], [30, 150, 60]], // green
+    [[180, 236, 240], [0, 140, 160]], // teal
+    [[196, 214, 255], [30, 70, 210]], // blue
+    [[226, 200, 255], [120, 40, 200]], // purple
+    [[255, 200, 236], [214, 30, 140]], // pink
+  ];
+  const BURST_AT = 100; // hearts gathered into one before it bursts by itself
   const RED_AT = 140; // radius at which a heart is fully deep red
   const MAX_TRAIL = 120;
   const MAX_BUBBLES = 250; // no new hearts past this many, to keep things smooth
@@ -64,6 +75,8 @@
       vy: rand(-0.3, 0.3),
       wobble: rand(0, Math.PI * 2),
       cooldown: 0,
+      count: 1, // how many hearts have been gathered into this one
+      palette: 0,
       ...props,
     };
   }
@@ -77,11 +90,13 @@
     return Math.hypot(b.x - mouse.x, b.y - mouse.y) < cursorReach(b);
   }
 
-  // Join b into a, keeping total area and momentum.
+  // Join b into a, keeping total area, momentum and gathered count; the bigger one's color wins.
   function merge(a, b) {
     const ma = a.r * a.r;
     const mb = b.r * b.r;
     const m = ma + mb;
+    a.count += b.count;
+    if (mb > ma) a.palette = b.palette;
     a.x = (a.x * ma + b.x * mb) / m;
     a.y = (a.y * ma + b.y * mb) / m;
     a.vx = (a.vx * ma + b.vx * mb) / m;
@@ -90,16 +105,21 @@
   }
 
   // Break a bubble into a random number of random-sized pieces with the same total area.
-  function split(b) {
-    const maxPieces = Math.min(7, Math.floor((b.r / MIN_R) ** 2), MAX_BUBBLES - ambient.length + 1);
+  // A burst (from gathering BURST_AT hearts) makes more pieces, all in the next color,
+  // each starting its count over.
+  function split(b, burst = false) {
+    const palette = burst ? (b.palette + 1) % PALETTES.length : b.palette;
+    const room = MAX_BUBBLES - ambient.length + 1;
+    const maxPieces = Math.min(burst ? 12 : 7, Math.floor((b.r / MIN_R) ** 2), room);
     if (maxPieces < 2) {
       // too small to split: just pop it
       ambient.splice(ambient.indexOf(b), 1);
-      spawnTrail(b.x, b.y, 8, 3);
+      spawnTrail(b.x, b.y, 8, 3, palette);
       return;
     }
 
-    const n = 2 + Math.floor(Math.random() * (maxPieces - 1));
+    const minPieces = burst ? Math.min(8, maxPieces) : 2;
+    const n = minPieces + Math.floor(Math.random() * (maxPieces - minPieces + 1));
     const weights = Array.from({ length: n }, () => rand(0.2, 1));
     const total = weights.reduce((sum, w) => sum + w, 0);
     const startAngle = rand(0, Math.PI * 2);
@@ -108,7 +128,7 @@
     weights.forEach((w, i) => {
       const r = Math.max(MIN_R, b.r * Math.sqrt(w / total));
       const angle = startAngle + (i / n) * Math.PI * 2 + rand(-0.3, 0.3);
-      const speed = rand(1.5, 4);
+      const speed = burst ? rand(3, 6) : rand(1.5, 4);
       ambient.push(
         makeAmbient({
           x: b.x + Math.cos(angle) * b.r * 0.5,
@@ -117,13 +137,16 @@
           vx: b.vx + Math.cos(angle) * speed,
           vy: b.vy + Math.sin(angle) * speed,
           cooldown: MERGE_COOLDOWN,
+          count: burst ? 1 : Math.max(1, Math.round((b.count * w) / total)),
+          palette,
         })
       );
     });
-    spawnTrail(b.x, b.y, 6, 2);
+    if (burst) spawnTrail(b.x, b.y, 30, 5, palette);
+    else spawnTrail(b.x, b.y, 6, 2, palette);
   }
 
-  function spawnTrail(x, y, count, speed) {
+  function spawnTrail(x, y, count, speed, palette = 0) {
     for (let i = 0; i < count; i++) {
       if (trail.length >= MAX_TRAIL) trail.shift();
       const angle = rand(0, Math.PI * 2);
@@ -136,6 +159,7 @@
         vy: Math.sin(angle) * v - 0.6,
         life: 1,
         decay: rand(0.012, 0.025),
+        palette,
       });
     }
   }
@@ -158,10 +182,11 @@
     return Math.min(1, Math.max(0, Math.log(r / MIN_R) / Math.log(RED_AT / MIN_R)));
   }
 
-  // The bigger the heart, the redder and more solid it is.
-  function drawBubble(x, y, r, alpha) {
+  // The bigger the heart, the deeper its color and the more solid it is.
+  function drawBubble(x, y, r, alpha, palette = 0, count = 0) {
     const t = redness(r);
-    const [cr, cg, cb] = LIGHT_RED.map((c, i) => Math.round(c + (DEEP_RED[i] - c) * t));
+    const [light, deep] = PALETTES[palette];
+    const [cr, cg, cb] = light.map((c, i) => Math.round(c + (deep[i] - c) * t));
     const color = (a) => `rgba(${cr},${cg},${cb},${a})`;
     ctx.globalAlpha = Math.min(1, alpha + 0.4 * t);
     const g = ctx.createRadialGradient(x - r * 0.45, y - r * 0.45, r * 0.1, x, y, r * 1.1);
@@ -177,6 +202,15 @@
     ctx.beginPath();
     ctx.ellipse(x - r * 0.5, y - r * 0.4, r * 0.18, r * 0.12, -Math.PI / 4, 0, Math.PI * 2);
     ctx.fill();
+
+    // how many hearts it has gathered so far, once that's worth showing
+    if (count >= 10 && r >= 18) {
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.font = `700 ${Math.round(r * 0.42)}px system-ui, -apple-system, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(count, x, y + r * 0.05);
+    }
   }
 
   function tick() {
@@ -234,6 +268,7 @@
       }
     }
     if (merged.size) ambient = ambient.filter((b) => !merged.has(b));
+    for (const b of ambient.filter((b) => b.count >= BURST_AT)) split(b, true);
 
     for (const b of ambient) {
       if (b.cooldown > 0) b.cooldown--;
@@ -265,7 +300,7 @@
       b.y += b.vy;
 
       confine(b, b.r, 0.8);
-      drawBubble(b.x, b.y, b.r, 0.55);
+      drawBubble(b.x, b.y, b.r, 0.55, b.palette, b.count);
     }
 
     for (let i = trail.length - 1; i >= 0; i--) {
@@ -280,7 +315,7 @@
       }
       const r = p.r * (0.6 + p.life * 0.4);
       confine(p, r, 0.7);
-      drawBubble(p.x, p.y, r, p.life);
+      drawBubble(p.x, p.y, r, p.life, p.palette);
     }
 
     ctx.globalAlpha = 1;
