@@ -7,7 +7,8 @@
 
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   // [tiniest heart color, biggest heart color] per palette; hearts start red and move
-  // to the next palette each time one bursts from gathering BURST_AT hearts.
+  // to the next palette each time one bursts. `palette` keeps counting up past the
+  // last one (it's used modulo the list) so a newer color always wins a merge.
   const PALETTES = [
     [[255, 196, 200], [200, 0, 24]], // red
     [[255, 214, 170], [224, 90, 0]], // orange
@@ -25,6 +26,8 @@
   const MIN_R = 4; // smallest bubble a split can produce
   const REPEL = 50; // strength of bubble-to-bubble antigravity
   const SPAWN_EVERY = 30; // frames between new hearts
+  const SPAWN_FAST_EVERY = 3; // ...while the screen has fewer hearts than it should
+  const AREA_PER_HEART = 5000; // screen px² per heart we aim to keep around (up to 120)
   const CROWDED = 0.45; // share of the screen covered by hearts that triggers a restart
   const MERGE_COOLDOWN = 90; // frames a fresh split piece can't merge
 
@@ -90,13 +93,13 @@
     return Math.hypot(b.x - mouse.x, b.y - mouse.y) < cursorReach(b);
   }
 
-  // Join b into a, keeping total area, momentum and gathered count; the bigger one's color wins.
+  // Join b into a, keeping total area, momentum and gathered count; the newer color wins.
   function merge(a, b) {
     const ma = a.r * a.r;
     const mb = b.r * b.r;
     const m = ma + mb;
     a.count += b.count;
-    if (mb > ma) a.palette = b.palette;
+    a.palette = Math.max(a.palette, b.palette);
     a.x = (a.x * ma + b.x * mb) / m;
     a.y = (a.y * ma + b.y * mb) / m;
     a.vx = (a.vx * ma + b.vx * mb) / m;
@@ -108,7 +111,7 @@
   // A burst (from gathering BURST_AT hearts) makes more pieces, all in the next color,
   // each starting its count over.
   function split(b, burst = false) {
-    const palette = burst ? (b.palette + 1) % PALETTES.length : b.palette;
+    const palette = burst ? b.palette + 1 : b.palette;
     const room = MAX_BUBBLES - ambient.length + 1;
     const maxPieces = Math.min(burst ? 12 : 7, Math.floor((b.r / MIN_R) ** 2), room);
     if (maxPieces < 2) {
@@ -185,7 +188,7 @@
   // The bigger the heart, the deeper its color and the more solid it is.
   function drawBubble(x, y, r, alpha, palette = 0, count = 0) {
     const t = redness(r);
-    const [light, deep] = PALETTES[palette];
+    const [light, deep] = PALETTES[palette % PALETTES.length];
     const [cr, cg, cb] = light.map((c, i) => Math.round(c + (deep[i] - c) * t));
     const color = (a) => `rgba(${cr},${cg},${cb},${a})`;
     ctx.globalAlpha = Math.min(1, alpha + 0.4 * t);
@@ -217,9 +220,10 @@
     ctx.clearRect(0, 0, width, height);
 
     // a new heart pops in every so often, to be gathered into a bigger one:
-    // mostly little ones, now and then a medium one
+    // mostly little ones, now and then a medium one; quickly while there are few
     frame++;
-    if (frame % SPAWN_EVERY === 0 && ambient.length < MAX_BUBBLES) {
+    const few = ambient.length < Math.min(120, (width * height) / AREA_PER_HEART);
+    if (frame % (few ? SPAWN_FAST_EVERY : SPAWN_EVERY) === 0 && ambient.length < MAX_BUBBLES) {
       const b = makeAmbient({ r: 4 + 16 * Math.random() ** 2 });
       if (!isPushed(b)) {
         ambient.push(b);
@@ -247,8 +251,7 @@
           dist < a.r + b.r &&
           a.cooldown <= 0 &&
           b.cooldown <= 0 &&
-          pushed &&
-          Math.hypot(a.r, b.r) <= maxR
+          pushed
         ) {
           merge(a, b);
           merged.add(b);
@@ -269,7 +272,8 @@
       }
     }
     if (merged.size) ambient = ambient.filter((b) => !merged.has(b));
-    for (const b of ambient.filter((b) => b.count >= BURST_AT)) split(b, true);
+    // too full to keep gathering (enough hearts, or as big as a heart gets): burst into a new color
+    for (const b of ambient.filter((b) => b.count >= BURST_AT || b.r >= maxR)) split(b, true);
 
     for (const b of ambient) {
       if (b.cooldown > 0) b.cooldown--;
