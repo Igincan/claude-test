@@ -18,13 +18,13 @@
     [[226, 200, 255], [120, 40, 200]], // purple
     [[255, 200, 236], [214, 30, 140]], // pink
   ];
-  const BURST_AT = 100; // hearts gathered into one before it bursts by itself
+  const BURST_AT = 40; // hearts gathered into one before it bursts by itself
   const RED_AT = 140; // radius at which a heart is fully deep red
   const MAX_TRAIL = 120;
   const MAX_BUBBLES = 250; // no new hearts past this many, to keep things smooth
   const MIN_R = 4; // smallest bubble a split can produce
   const REPEL = 50; // strength of bubble-to-bubble antigravity
-  const SPAWN_EVERY = 60; // frames between new little hearts
+  const SPAWN_EVERY = 30; // frames between new hearts
   const CROWDED = 0.45; // share of the screen covered by hearts that triggers a restart
   const MERGE_COOLDOWN = 90; // frames a fresh split piece can't merge
 
@@ -216,10 +216,11 @@
   function tick() {
     ctx.clearRect(0, 0, width, height);
 
-    // a new little heart pops in every so often, to be gathered into a bigger one
+    // a new heart pops in every so often, to be gathered into a bigger one:
+    // mostly little ones, now and then a medium one
     frame++;
     if (frame % SPAWN_EVERY === 0 && ambient.length < MAX_BUBBLES) {
-      const b = makeAmbient({ r: rand(5, 10) });
+      const b = makeAmbient({ r: 4 + 16 * Math.random() ** 2 });
       if (!isPushed(b)) {
         ambient.push(b);
         spawnTrail(b.x, b.y, 3, 1);
@@ -388,7 +389,7 @@
     ambient = [];
     trail.length = 0;
     frame = 0;
-    const count = Math.round((width * height) / 15000);
+    const count = Math.round((width * height) / 10000);
     for (let i = 0; i < count; i++) ambient.push(makeAmbient());
   }
 
