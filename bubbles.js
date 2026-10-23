@@ -7,13 +7,20 @@
 
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   // [tiniest heart color, biggest heart color] per palette; hearts start pale pink and
-  // move one step towards red each time one bursts, then stay red. A newer (later)
-  // color always wins when filling.
+  // move one step towards deep red each time one bursts. A newer (later) color always
+  // wins when filling. Deep red is the last step: see the final stage in tick().
   const PALETTES = [
     [[250, 200, 218], [232, 128, 168]], // pale pink
+    [[255, 182, 210], [234, 96, 156]], // light pink
     [[255, 160, 200], [218, 50, 128]], // pink
-    [[255, 186, 190], [190, 10, 32]], // red
+    [[255, 150, 182], [212, 30, 100]], // raspberry
+    [[255, 150, 165], [204, 22, 68]], // rose
+    [[255, 160, 166], [190, 10, 32]], // red
+    [[236, 118, 124], [148, 0, 18]], // deep red
   ];
+  const LAST = PALETTES.length - 1;
+  const FINAL_SIZE = 0.46; // final heart's radius as a share of the screen's shorter side
+  const GROW_RATE = 25; // px² per frame the final heart grows by itself
   const MASS_UNIT = 10; // a heart's mass is (r / MASS_UNIT)², so it grows with its area
   const BURST_AT = 100; // mass at which a heart bursts by itself (r = 100px)
   const BURST_KEEP = 0.6; // share of the mass the burst pieces keep; the rest sparkles away
@@ -28,9 +35,11 @@
   const CROWDED = 0.45; // share of the screen covered by hearts that triggers a restart
   const MERGE_COOLDOWN = 90; // frames a fresh split piece can't merge
   const FILL_RATE = 20; // px² of area that flows into the filling heart per frame
+  const FILL_IDLE = 240; // frames without filling before another heart can be picked
 
   let width, height, dpr;
   let filling = null; // the one heart being filled right now; only it grows, until it bursts
+  let fillIdle = 0; // frames since the filling heart last got filled
   let ambient = []; // floating bubbles: repel each other, dodge the cursor, merge and split
   const trail = []; // short-lived bubbles spawned by the cursor
   const mouse = { x: -9999, y: -9999, lastX: null, lastY: null };
@@ -210,18 +219,36 @@
   function tick() {
     ctx.clearRect(0, 0, width, height);
 
+    // Final stage: once a heart reaches the last (deep red) color, no new hearts appear,
+    // the biggest deep red heart becomes the one being filled and grows by itself until
+    // it's as big as the screen allows, and the screen no longer restarts when crowded.
+    const finalR = Math.min(width, height) * FINAL_SIZE;
+    const finalStage = ambient.some((b) => b.palette === LAST);
+    if (finalStage) {
+      if (!filling || filling.palette !== LAST) {
+        filling = ambient.reduce((big, b) => (b.palette === LAST && (!big || b.r > big.r) ? b : big), null);
+      }
+      if (filling.r < finalR) filling.r = Math.min(finalR, Math.sqrt(filling.r ** 2 + GROW_RATE));
+    }
+
     // a new heart pops in every so often, to be gathered into a bigger one:
     // mostly small ones, now and then a bigger one; quickly while there are few
     frame++;
     const few = ambient.length < Math.min(120, (width * height) / AREA_PER_HEART);
-    if (frame % (few ? SPAWN_FAST_EVERY : SPAWN_EVERY) === 0 && ambient.length < MAX_BUBBLES) {
+    if (
+      !finalStage &&
+      frame % (few ? SPAWN_FAST_EVERY : SPAWN_EVERY) === 0 &&
+      ambient.length < MAX_BUBBLES
+    ) {
       const b = makeAmbient({ r: 7 + 23 * Math.random() ** 2 });
       if (!isPushed(b)) {
         ambient.push(b);
         spawnTrail(b.x, b.y, 3, 1);
       }
     }
-    if (isCrowded()) reset();
+    if (!finalStage && isCrowded()) reset();
+    // a heart left alone for a while (drifted off, say) stops being the one to fill
+    if (filling && !finalStage && ++fillIdle > FILL_IDLE) filling = null;
 
     const maxR = Math.min(width, height) * 0.35;
     const merged = new Set();
@@ -241,9 +268,12 @@
         const pushed = isPushed(a) || isPushed(b);
         if (dist < a.r + b.r && a.cooldown <= 0 && b.cooldown <= 0 && pushed) {
           if (!filling) filling = a.r >= b.r ? a : b;
-          if (a === filling || b === filling) {
+          if (a === filling || b === filling) fillIdle = 0;
+          const full = filling.palette === LAST && filling.r >= finalR;
+          if ((a === filling || b === filling) && !full) {
             const other = a === filling ? b : a;
             if (feed(filling, other)) merged.add(other);
+            if (filling.palette === LAST) filling.r = Math.min(filling.r, finalR);
             if (merged.has(a)) break;
             continue;
           }
@@ -263,8 +293,10 @@
       }
     }
     if (merged.size) ambient = ambient.filter((b) => !merged.has(b));
-    // too full to keep gathering (enough hearts, or as big as a heart gets): burst into a new color
-    for (const b of ambient.filter((b) => mass(b) >= BURST_AT || b.r >= maxR)) split(b, true);
+    // too full to keep gathering (enough hearts, or as big as a heart gets): burst into a
+    // new color; deep red hearts don't burst any more
+    const bursting = (b) => b.palette < LAST && (mass(b) >= BURST_AT || b.r >= maxR);
+    for (const b of ambient.filter(bursting)) split(b, true);
 
     for (const b of ambient) {
       if (b.cooldown > 0) b.cooldown--;
@@ -366,7 +398,9 @@
     for (let i = ambient.length - 1; i >= 0; i--) {
       const b = ambient[i];
       if (Math.hypot(b.x - e.clientX, b.y - e.clientY) <= b.r) {
-        split(b);
+        // tapping the finished final heart starts over with fresh hearts
+        if (b.palette === LAST && b.r >= Math.min(width, height) * FINAL_SIZE) reset();
+        else split(b);
         return;
       }
     }
